@@ -1,0 +1,15 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: tally
+      POSTGRES_PASSWORD: tally
+      POSTGRES_DB: tally
+    ports:
+      - "5432:5432"
+    volumes:
+      - tally_db_data:/var/lib/postgresql/data
+
+
+volumes:
+  tally_db_data:
