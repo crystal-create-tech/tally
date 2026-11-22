@@ -1,7 +1,7 @@
 import datetime
 import enum
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, func
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -12,6 +12,10 @@ class UserRole(str, enum.Enum):
     MANAGER = "manager"
     ADMIN = "admin"
 
+class ShiftSource(str, enum.Enum):
+    MOBILE = "mobile"
+    KIOSK = "kiosk"
+    WEB = "web"
 
 class Organization(Base):
     __tablename__ = "organizations"
@@ -38,5 +42,33 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     hourly_rate_cents: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+class Shift(Base):
+    __tablename__= "shifts"
+    __table_args__ = (
+        Index(
+            "one_open_shift_per_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("clock_out_at IS NULL"),
+        ),
+        CheckConstraint(
+            "clock_out_at IS NULL OR clock_out_at > clock_in_at",
+            name="clock_out_after_clock_in",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    clock_in_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True))
+    clock_out_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
+    source:  Mapped[ShiftSource] = mapped_column(
+        Enum(ShiftSource, name="shift_source", values_callable=lambda source_enum: [source.value for source in source_enum]),
+        default=ShiftSource.MOBILE,
+    )
+    created_at:  Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
