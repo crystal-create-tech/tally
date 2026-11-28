@@ -1,8 +1,9 @@
 import datetime
 import enum
 
-from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, String, func, text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, String, Text, func, text
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
@@ -16,6 +17,27 @@ class ShiftSource(str, enum.Enum):
     MOBILE = "mobile"
     KIOSK = "kiosk"
     WEB = "web"
+
+class CaseStatus(str, enum.Enum):
+    RECEIVED = "received"
+    ANALYZING = "analyzing"
+    AWAITING_APPROVAL = "awaiting_approval"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    EXECUTED = "executed"
+    FAILED = "failed"
+
+class CaseSource(str, enum.Enum):
+    MANUAL = "manual"
+    EMAIL = "email"
+    WEBHOOK = "webhook"
+
+def enum_column_type(enum_class: type[enum.Enum], type_name: str) -> Enum:
+    return Enum(
+        enum_class,
+        name=type_name,
+        values_callable=lambda enum_members: [member.value for member in enum_members],
+    )
 
 class Organization(Base):
     __tablename__ = "organizations"
@@ -70,5 +92,45 @@ class Shift(Base):
         default=ShiftSource.MOBILE,
     )
     created_at:  Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+class ExceptionCase(Base):
+    __tablename__ = "exception_cases"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    employee_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    source: Mapped[CaseSource] = mapped_column(enum_column_type(CaseSource, "case_source"))
+    description: Mapped[str] = mapped_column(Text)
+    status: Mapped[CaseStatus] = mapped_column(
+        enum_column_type(CaseStatus, "case_status"),
+        default=CaseStatus.RECEIVED,
+        index=True,
+    )
+    proposed_adjustment: Mapped[dict | None] = mapped_column(JSONB)
+    failure_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    events: Mapped[list["CaseEvent"]] = relationship(order_by="CaseEvent.id")
+
+
+class CaseEvent(Base):
+    __tablename__ = "case_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    case_id: Mapped[int] = mapped_column(ForeignKey("exception_cases.id"), index=True)
+    event_type: Mapped[str] = mapped_column(String(50))
+    from_status: Mapped[str | None] = mapped_column(String(30))
+    to_status: Mapped[str | None] = mapped_column(String(30))
+    actor: Mapped[str] = mapped_column(String(100))
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
